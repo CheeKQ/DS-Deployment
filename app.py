@@ -401,4 +401,3 @@ st.markdown(
     '<div class="small-note">Prototype purpose: To support production planning, labor monitoring, and productivity forecasting in garment factory operations.</div>',
     unsafe_allow_html=True
 )
-
