@@ -101,7 +101,6 @@ def normalize_prediction(pred):
 
 def get_result_message(result):
     if result == "High":
-        st.balloons()
         return "success", "The current input pattern suggests strong production performance."
     elif result == "Moderate":
         return "warning", "The current input pattern suggests average but stable production performance."
@@ -393,38 +392,6 @@ Then, it predicts the productivity class as:
 - **Moderate**
 - **High**
 """)
-    # =====================================================
-    # EXPORT CURRENT RESULT
-    # =====================================================
-    st.subheader("📥 Export Current Result")
-    current_result_df = pd.DataFrame([history_row])
-    current_csv = current_result_df.to_csv(index=False).encode("utf-8")
-
-    st.download_button(
-        label="Download Current Prediction as CSV",
-        data=current_csv,
-        file_name="current_prediction_result.csv",
-        mime="text/csv"
-    )
-
-# =========================================================
-# PREDICTION HISTORY
-# =========================================================
-if st.session_state.prediction_history:
-    st.divider()
-    st.subheader("🕘 Prediction History")
-
-    history_df = pd.DataFrame(st.session_state.prediction_history)
-    st.dataframe(history_df, use_container_width=True, hide_index=True)
-
-    history_csv = history_df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Download Full Prediction History",
-        data=history_csv,
-        file_name="prediction_history.csv",
-        mime="text/csv"
-    )
-
 
 # =========================================================
 # FOOTER
@@ -434,6 +401,5 @@ st.markdown(
     '<div class="small-note">Prototype purpose: To support production planning, labor monitoring, and productivity forecasting in garment factory operations.</div>',
     unsafe_allow_html=True
 )
-
 
 
