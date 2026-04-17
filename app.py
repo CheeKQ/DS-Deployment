@@ -228,7 +228,7 @@ with col1:
     st.subheader("📅 Time & Place")
     day = st.selectbox(
         "Day of the Week",
-        ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        ["Monday", "Tuesday", "Wednesday", "Thursday", "Saturday", "Sunday"]
     )
     quarter = st.selectbox(
         "Quarter",
