@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+from datetime import datetime
 
 # =========================================================
 # PAGE CONFIG
@@ -18,9 +19,9 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main-title {
-        font-size: 2.5rem;
+        font-size: 2.4rem;
         font-weight: 800;
-        margin-bottom: 0.2rem;
+        margin-bottom: 0.15rem;
     }
     .subtitle {
         font-size: 1rem;
@@ -34,6 +35,14 @@ st.markdown("""
         border: 1px solid #e5e7eb;
         margin-bottom: 1rem;
     }
+    .result-box {
+        padding: 1.2rem;
+        border-radius: 16px;
+        border: 1px solid #e5e7eb;
+        background: #ffffff;
+        margin-top: 0.8rem;
+        margin-bottom: 1rem;
+    }
     .small-note {
         color: #6b7280;
         font-size: 0.9rem;
@@ -45,97 +54,113 @@ st.markdown("""
 # LOAD ASSETS
 # =========================================================
 @st.cache_resource
-def load_model_assets():
+def load_assets():
     model = joblib.load("garment_xgb_model.pkl")
     model_columns = joblib.load("xgb_model_columns.pkl")
     return model, model_columns
 
 @st.cache_data
-def load_dataset():
-    return pd.read_csv("final_classification_dataset.csv")
+def load_reference_data():
+    try:
+        return pd.read_csv("cleaned_garments_worker_productivity.csv")
+    except Exception:
+        return None
 
-model, model_columns = load_model_assets()
-df = load_dataset()
+model, model_columns = load_assets()
+reference_df = load_reference_data()
 
 # =========================================================
-# DATA-DRIVEN OPTIONS
+# SESSION STATE
 # =========================================================
-quarter_options = sorted(df["quarter"].dropna().unique().tolist())
-department_options = sorted(df["department"].dropna().unique().tolist())
-day_options = sorted(df["day"].dropna().unique().tolist())
-style_change_options = sorted(df["no_of_style_change"].dropna().unique().tolist())
-
-# numeric ranges
-smv_min, smv_max = float(df["smv"].min()), float(df["smv"].max())
-wip_min, wip_max = int(df["wip"].min()), int(df["wip"].max())
-over_time_min, over_time_max = int(df["over_time"].min()), int(df["over_time"].max())
-incentive_min, incentive_max = int(df["incentive"].min()), int(df["incentive"].max())
-idle_time_min, idle_time_max = int(df["idle_time"].min()), int(df["idle_time"].max())
-idle_men_min, idle_men_max = int(df["idle_men"].min()), int(df["idle_men"].max())
-workers_min, workers_max = int(df["no_of_workers"].min()), int(df["no_of_workers"].max())
+if "history" not in st.session_state:
+    st.session_state.history = []
 
 # =========================================================
 # HELPER FUNCTIONS
 # =========================================================
-def set_dummy_value(input_df, prefix, value):
+def get_range_from_data(df, column_name, default_min, default_max):
+    if df is not None and column_name in df.columns:
+        try:
+            col = pd.to_numeric(df[column_name], errors="coerce").dropna()
+            if not col.empty:
+                return float(col.min()), float(col.max())
+        except Exception:
+            pass
+    return float(default_min), float(default_max)
+
+def set_dummy(category, value, input_df, columns):
     candidates = [
-        f"{prefix}_{value}",
-        f"{prefix}_{str(value).lower()}",
-        f"{prefix}_{str(value).upper()}",
-        f"{prefix}_{str(value).capitalize()}",
+        f"{category}_{value}",
+        f"{category}_{str(value).lower()}",
+        f"{category}_{str(value).upper()}",
+        f"{category}_{str(value).capitalize()}",
+        f"{category}_{str(value).replace(' ', '_')}",
+        f"{category}_{str(value).lower().replace(' ', '_')}"
     ]
-    for col in candidates:
-        if col in input_df.columns:
-            input_df[col] = 1
+    for col_name in candidates:
+        if col_name in columns:
+            input_df[col_name] = 1
             return
 
-def normalize_prediction(pred):
-    if isinstance(pred, str):
-        return pred
-    class_map = {
-        0: "Low",
-        1: "Moderate",
-        2: "High"
-    }
-    return class_map.get(int(pred), str(pred))
-
-def get_result_message(result):
-    if result == "High":
-        return "success", "The current input pattern suggests strong production performance."
-    elif result == "Moderate":
-        return "warning", "The current input pattern suggests average but stable production performance."
-    else:
-        return "error", "The current input pattern suggests a risk of lower productivity."
-
-def get_recommendations(result, wip, over_time, incentive, idle_time, idle_men, workers, style_change):
+def build_recommendations(result, wip, workers, incentive, overtime, idle_time, idle_men, style_change):
     recs = []
 
     if result == "Low":
-        recs.append("Reduce idle time and idle workers to improve operational efficiency.")
-        recs.append("Review whether the current workload is balanced with the number of workers.")
-        recs.append("Evaluate incentive strategy to improve worker motivation and performance.")
-        recs.append("Minimize unnecessary style changes to reduce disruption on the production floor.")
-        if over_time > 7000:
-            recs.append("Very high overtime may indicate pressure on the production line and should be monitored carefully.")
-
+        recs.append("Reduce idle time and idle workers because these may negatively affect line efficiency.")
+        recs.append("Review whether the current workload is too high for the available workforce.")
+        recs.append("Consider improving incentive support to motivate better worker performance.")
+        recs.append("Minimize unnecessary style changes to reduce disruption in production flow.")
+        if overtime > 1.2:
+            recs.append("High overtime may reflect operational pressure, so workload balancing should be reviewed.")
     elif result == "Moderate":
         recs.append("The production line is operating within a normal range but still has room for improvement.")
-        recs.append("Better workload planning and lower idle conditions may help raise productivity to the high tier.")
-        recs.append("Monitor overtime and style changes to maintain stable production flow.")
-
+        recs.append("Better workload balancing and tighter floor control may help shift performance into the high tier.")
+        recs.append("Keep idle time low and maintain stable worker allocation for more consistent productivity.")
+        if style_change != "0":
+            recs.append("Reducing style changes where possible may improve production continuity.")
     else:
-        recs.append("The current production setup appears efficient and well balanced.")
-        recs.append("This input combination can be used as a benchmark for future planning.")
-        recs.append("Maintain low idle conditions and consistent resource allocation to sustain high productivity.")
+        recs.append("The current setup appears efficient and supports strong productivity performance.")
+        recs.append("This condition may be used as a benchmark for future production planning.")
+        recs.append("Maintain current operational discipline and monitor for sudden changes in line conditions.")
+        if idle_time == 0 and idle_men == 0:
+            recs.append("Zero idle conditions suggest strong resource utilization and floor efficiency.")
 
     return recs
+
+def normalize_prediction_label(pred_idx):
+    labels = ["Low", "Moderate", "High"]
+    try:
+        return labels[int(pred_idx)]
+    except Exception:
+        return str(pred_idx)
+
+# =========================================================
+# DYNAMIC RANGES
+# =========================================================
+wip_min, wip_max = get_range_from_data(reference_df, "wip", 0, 23122)
+workers_min, workers_max = get_range_from_data(reference_df, "no_of_workers", 2, 90)
+smv_min, smv_max = get_range_from_data(reference_df, "smv", 2.9, 54.6)
+incentive_min, incentive_max = get_range_from_data(reference_df, "incentive", 0, 3600)
+idle_time_min, idle_time_max = get_range_from_data(reference_df, "idle_time", 0, 300)
+idle_men_min, idle_men_max = get_range_from_data(reference_df, "idle_men", 0, 45)
+
+wip_min = int(max(0, round(wip_min)))
+wip_max = int(round(wip_max))
+workers_min = int(max(2, round(workers_min)))
+workers_max = int(round(workers_max))
+incentive_min = int(max(0, round(incentive_min)))
+incentive_max = int(round(incentive_max))
+idle_time_min = int(max(0, round(idle_time_min)))
+idle_time_max = int(round(idle_time_max))
+idle_men_min = int(max(0, round(idle_men_min)))
+idle_men_max = int(round(idle_men_max))
 
 # =========================================================
 # HEADER
 # =========================================================
 st.markdown('<div class="main-title">🧵 AI-Powered Garment Factory Productivity Predictor</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="subtitle">A machine learning-based decision support prototype for predicting garment factory productivity using XGBoost.</div>',
+    '<div class="subtitle">A decision support prototype for forecasting garment factory productivity using a tuned XGBoost classifier.</div>',
     unsafe_allow_html=True
 )
 
@@ -153,87 +178,141 @@ This prototype predicts garment factory productivity into three classes:
 - **Moderate**
 - **High**
 
-The prediction is based on operational variables from the finalized classification dataset.
+It uses a **tuned XGBoost classifier** trained on production-related features such as workload, labor allocation, incentives, overtime, and idle conditions.
 """)
 
     st.markdown("---")
     st.subheader("🤖 Why XGBoost?")
     st.write("""
-XGBoost was chosen because it:
-- handles non-linear relationships well,
-- improves accuracy through boosting,
-- reduces overfitting with regularization,
-- performs strongly on structured tabular data.
+XGBoost was selected because it:
+- captures complex non-linear relationships,
+- provides strong predictive performance,
+- reduces overfitting through regularization,
+- performs well on structured operational data.
 """)
 
     st.markdown("---")
-    st.subheader("📂 Dataset-Aligned Inputs")
+    st.subheader("🧪 Current Model Inputs")
     st.write("""
-This app is built based on these finalized dataset fields:
-- quarter
-- department
-- day
-- smv
-- wip
-- over_time
-- incentive
-- idle_time
-- idle_men
-- no_of_style_change
-- no_of_workers
+- Day
+- Quarter
+- Department
+- Team
+- WIP
+- Number of Workers
+- Style Change
+- SMV
+- Incentive
+- Overtime (Scaled)
+- Idle Time
+- Idle Workers
 """)
 
 # =========================================================
 # INPUT AREA
 # =========================================================
-st.markdown("## 📥 Production Input Form")
+st.markdown("### 📥 Production Input Form")
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("📅 Time & Context")
-    quarter = st.selectbox("Quarter", quarter_options)
-    department = st.selectbox("Department", department_options)
-    day = st.selectbox("Day of the Week", day_options)
+    st.subheader("📅 Time & Place")
+    day = st.selectbox(
+        "Day of the Week",
+        ["Monday", "Tuesday", "Wednesday", "Thursday", "Saturday", "Sunday"]
+    )
+    quarter = st.selectbox(
+        "Quarter",
+        ["Quarter1", "Quarter2", "Quarter3", "Quarter4", "Quarter5"]
+    )
+    dept = st.selectbox("Department", ["Sewing", "Finished"])
+    team = st.slider("Team Number", 1, 12, 1)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("⚙️ Production Factors")
-    smv = st.number_input("SMV (Complexity)", min_value=smv_min, max_value=smv_max, value=float(round(df["smv"].median(), 2)), step=0.01, format="%.2f")
-    wip = st.number_input("Work in Progress (WIP)", min_value=wip_min, max_value=wip_max, value=int(df["wip"].median()), step=1)
-    no_of_style_change = st.selectbox("Number of Style Changes", style_change_options)
-    no_of_workers = st.number_input("Number of Workers", min_value=workers_min, max_value=workers_max, value=int(df["no_of_workers"].median()), step=1)
+    st.subheader("⚙️ Resource Allocation")
+    wip = st.number_input(
+        "Work in Progress (WIP)",
+        min_value=0,
+        max_value=max(wip_max, 1),
+        value=min(500, max(wip_max, 1)),
+        step=1
+    )
+    workers = st.number_input(
+        "Number of Workers",
+        min_value=workers_min,
+        max_value=max(workers_max, workers_min),
+        value=min(max(workers_min, 2), max(workers_max, workers_min)),
+        step=1
+    )
+    style_change = st.selectbox("Number of Style Changes", ["0", "1", "2"])
+    smv = st.number_input(
+        "SMV (Complexity)",
+        min_value=float(smv_min),
+        max_value=float(smv_max),
+        value=float(min(max(smv_min, 22.0), smv_max)),
+        step=0.1,
+        format="%.2f"
+    )
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col3:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("💰 Time & Efficiency Metrics")
-    over_time = st.number_input("Overtime", min_value=over_time_min, max_value=over_time_max, value=int(df["over_time"].median()), step=1)
-    incentive = st.number_input("Incentive Amount", min_value=incentive_min, max_value=incentive_max, value=int(df["incentive"].median()), step=1)
-    idle_time = st.number_input("Idle Time (Mins)", min_value=idle_time_min, max_value=idle_time_max, value=int(df["idle_time"].median()), step=1)
-    idle_men = st.number_input("Idle Workers Count", min_value=idle_men_min, max_value=idle_men_max, value=int(df["idle_men"].median()), step=1)
+    st.subheader("💰 Incentives & Metrics")
+    incentive = st.number_input(
+        "Incentive Amount",
+        min_value=0,
+        max_value=max(incentive_max, 1),
+        value=min(100, max(incentive_max, 1)),
+        step=1
+    )
+    overtime = st.slider(
+        "Overtime (Scaled)",
+        min_value=-2.0,
+        max_value=2.0,
+        value=0.0,
+        step=0.1
+    )
+    idle_time = st.number_input(
+        "Idle Time (Mins)",
+        min_value=0,
+        max_value=max(idle_time_max, 1),
+        value=0,
+        step=1
+    )
+    idle_men = st.number_input(
+        "Idle Workers Count",
+        min_value=0,
+        max_value=max(idle_men_max, 1),
+        value=0,
+        step=1
+    )
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================================================
-# MONITORING NOTES
+# INPUT MONITORING NOTES
 # =========================================================
 notes = []
 
-if idle_time > 100:
-    notes.append("Idle time is relatively high and may negatively affect productivity.")
-if idle_men > 10:
+if workers < 5:
+    notes.append("Very low worker count may represent limited production capacity.")
+if overtime > 1.5:
+    notes.append("High overtime may indicate operational pressure.")
+if idle_time > 180:
+    notes.append("Idle time is unusually high and may reduce productivity.")
+if idle_men > 20:
     notes.append("A high number of idle workers may indicate weak labor utilization.")
-if over_time > 8000:
-    notes.append("Very high overtime may reflect operational pressure.")
-if wip > 2000:
-    notes.append("A high WIP value may create bottlenecks if not managed properly.")
+if wip > (0.8 * max(wip_max, 1)):
+    notes.append("WIP is near the upper reference range and may create bottlenecks.")
+if float(smv) > (0.8 * max(smv_max, 1)):
+    notes.append("SMV is relatively high, which may indicate more complex production tasks.")
 
 if notes:
     with st.expander("⚠️ Input Monitoring Notes"):
-        for note in notes:
-            st.write(f"- {note}")
+        for msg in notes:
+            st.write(f"- {msg}")
 
 # =========================================================
 # PREDICTION
@@ -243,66 +322,82 @@ st.divider()
 if st.button("Generate Productivity Forecast", use_container_width=True):
     input_df = pd.DataFrame(0, index=[0], columns=model_columns)
 
-    # numeric fields
-    numeric_fields = {
-        "smv": smv,
-        "wip": wip,
-        "over_time": over_time,
-        "incentive": incentive,
-        "idle_time": idle_time,
-        "idle_men": idle_men,
-        "no_of_style_change": no_of_style_change,
-        "no_of_workers": no_of_workers
+    # Numeric mapping
+    numeric_map = {
+        "team": team,
+        "smv": float(smv),
+        "wip": int(wip),
+        "incentive": int(incentive),
+        "idle_time": int(idle_time),
+        "idle_men": int(idle_men),
+        "no_of_workers": int(workers),
+        "over_time_scaled": float(overtime)
     }
 
-    for col, val in numeric_fields.items():
+    for col, val in numeric_map.items():
         if col in input_df.columns:
             input_df[col] = val
 
-    # dummy fields
-    set_dummy_value(input_df, "quarter", quarter)
-    set_dummy_value(input_df, "department", department)
-    set_dummy_value(input_df, "day", day)
+    # Dummy encoding
+    set_dummy("quarter", quarter, input_df, model_columns)
+    set_dummy("department", dept, input_df, model_columns)
+    set_dummy("department", dept.lower(), input_df, model_columns)
+    set_dummy("day", day, input_df, model_columns)
+    set_dummy("no_of_style_change", style_change, input_df, model_columns)
 
-    # some models one-hot encode style changes
-    set_dummy_value(input_df, "no_of_style_change", no_of_style_change)
-
-    # align
     input_df = input_df[model_columns]
 
-    # predict
-    raw_pred = model.predict(input_df)[0]
-    result = normalize_prediction(raw_pred)
+    prediction_idx = model.predict(input_df)[0]
+    probs = model.predict_proba(input_df)[0]
 
-    probs = None
-    if hasattr(model, "predict_proba"):
-        try:
-            probs = model.predict_proba(input_df)[0]
-        except Exception:
-            probs = None
+    result = normalize_prediction_label(prediction_idx)
+    confidence = float(np.max(probs))
 
-    status_type, status_msg = get_result_message(result)
+    history_row = {
+        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Predicted Tier": result,
+        "Confidence": f"{confidence:.2%}",
+        "Day": day,
+        "Quarter": quarter,
+        "Department": dept,
+        "Team": team,
+        "WIP": int(wip),
+        "Workers": int(workers),
+        "Style Change": style_change,
+        "SMV": float(smv),
+        "Incentive": int(incentive),
+        "Overtime Scaled": float(overtime),
+        "Idle Time": int(idle_time),
+        "Idle Workers": int(idle_men)
+    }
+    st.session_state.history.append(history_row)
 
+    # =====================================================
+    # RESULT METRICS
+    # =====================================================
     st.markdown("## 📊 Prediction Results")
 
-    if probs is not None:
-        confidence = float(np.max(probs))
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Predicted Productivity", result)
-        c2.metric("Confidence Score", f"{confidence:.2%}")
-        c3.metric("Workers", int(no_of_workers))
-    else:
-        c1, c2 = st.columns(2)
-        c1.metric("Predicted Productivity", result)
-        c2.metric("Workers", int(no_of_workers))
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Predicted Productivity", result)
+    m2.metric("Confidence Score", f"{confidence:.2%}")
+    m3.metric("Workers", int(workers))
+    m4.metric("WIP", int(wip))
 
-    if status_type == "success":
-        st.success(status_msg)
-    elif status_type == "warning":
-        st.warning(status_msg)
+    st.markdown('<div class="result-box">', unsafe_allow_html=True)
+    if result == "High":
+        st.success(f"✅ Predicted Tier: **{result}**")
+        st.info("The model suggests that the current production setup is operating efficiently.")
+    elif result == "Moderate":
+        st.warning(f"⚠️ Predicted Tier: **{result}**")
+        st.info("The model suggests that the current production setup is stable but still has room for improvement.")
     else:
-        st.error(status_msg)
+        st.error(f"🚨 Predicted Tier: **{result}**")
+        st.info("The model suggests a higher risk of lower productivity under the current operational setup.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
+    # =====================================================
+    # TABS
+    # =====================================================
     tab1, tab2, tab3, tab4 = st.tabs([
         "📌 Input Summary",
         "📈 Confidence Breakdown",
@@ -313,50 +408,53 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
     with tab1:
         summary_df = pd.DataFrame({
             "Feature": [
+                "Day",
                 "Quarter",
                 "Department",
-                "Day",
-                "SMV",
-                "WIP",
-                "Overtime",
-                "Incentive",
-                "Idle Time",
-                "Idle Workers",
+                "Team Number",
+                "Work in Progress (WIP)",
+                "Number of Workers",
                 "Style Changes",
-                "Number of Workers"
+                "SMV",
+                "Incentive",
+                "Overtime (Scaled)",
+                "Idle Time",
+                "Idle Workers"
             ],
             "Value": [
-                quarter,
-                department,
                 day,
-                smv,
+                quarter,
+                dept,
+                team,
                 wip,
-                over_time,
+                workers,
+                style_change,
+                smv,
                 incentive,
+                overtime,
                 idle_time,
-                idle_men,
-                no_of_style_change,
-                no_of_workers
+                idle_men
             ]
         })
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
     with tab2:
-        if probs is not None:
-            prob_df = pd.DataFrame({
-                "Productivity Level": ["Low", "Moderate", "High"],
-                "Probability": probs
-            })
-            st.bar_chart(prob_df.set_index("Productivity Level"))
-            display_df = prob_df.copy()
-            display_df["Probability"] = display_df["Probability"].map(lambda x: f"{x:.2%}")
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("Probability output is not available for the current loaded model.")
+        prob_df = pd.DataFrame({
+            "Productivity Level": ["Low", "Moderate", "High"],
+            "Probability": probs
+        })
+
+        st.write("This chart shows the probability distribution across all productivity classes.")
+        st.bar_chart(prob_df.set_index("Productivity Level"))
+
+        display_df = prob_df.copy()
+        display_df["Probability"] = display_df["Probability"].map(lambda x: f"{x:.2%}")
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     with tab3:
-        recommendations = get_recommendations(
-            result, wip, over_time, incentive, idle_time, idle_men, no_of_workers, no_of_style_change
+        st.write("The prototype also provides decision-support recommendations based on the predicted result.")
+        recommendations = build_recommendations(
+            result, wip, workers, incentive, overtime, idle_time, idle_men, style_change
         )
         for i, rec in enumerate(recommendations, start=1):
             st.write(f"**{i}.** {rec}")
@@ -368,30 +466,61 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
 It is an ensemble learning algorithm that combines many decision trees to improve prediction accuracy.
 
 ### Why XGBoost is suitable for this prototype
-- It can model complex relationships between production factors.
-- It performs better than a single tree by learning from previous errors.
+- It can capture complex relationships between production variables.
+- It performs better than a single decision tree because it learns from previous prediction errors.
 - It includes regularization to reduce overfitting.
-- It is highly effective for structured operational datasets.
+- It is highly effective for structured production and workforce data.
 
 ### In this prototype
-The model analyzes:
-- quarter
-- department
-- day
-- smv
-- wip
-- over_time
-- incentive
-- idle_time
-- idle_men
-- no_of_style_change
-- no_of_workers
+The model analyzes production-related variables such as:
+- Day
+- Quarter
+- Department
+- Team
+- Work in Progress (WIP)
+- Number of Workers
+- Number of Style Changes
+- SMV
+- Incentive Amount
+- Overtime (Scaled)
+- Idle Time
+- Idle Workers
 
-Then, it predicts the productivity class as:
+Then, it predicts one of three productivity classes:
 - **Low**
 - **Moderate**
 - **High**
 """)
+
+    # =====================================================
+    # DOWNLOAD CURRENT RESULT
+    # =====================================================
+    st.markdown("### 📥 Export Current Result")
+    export_df = pd.DataFrame([history_row])
+    csv = export_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Download Current Prediction as CSV",
+        data=csv,
+        file_name="garment_prediction_result.csv",
+        mime="text/csv"
+    )
+
+# =========================================================
+# HISTORY SECTION
+# =========================================================
+if st.session_state.history:
+    st.divider()
+    st.markdown("## 🕘 Prediction History")
+    history_df = pd.DataFrame(st.session_state.history)
+    st.dataframe(history_df, use_container_width=True, hide_index=True)
+
+    history_csv = history_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Download Full Prediction History",
+        data=history_csv,
+        file_name="garment_prediction_history.csv",
+        mime="text/csv"
+    )
 
 # =========================================================
 # FOOTER
