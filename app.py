@@ -39,16 +39,6 @@ st.markdown("""
         color: #6b7280;
         font-size: 0.9rem;
     }
-    .pill {
-        display: inline-block;
-        padding: 0.2rem 0.55rem;
-        border-radius: 999px;
-        background: #eef2ff;
-        border: 1px solid #dbe4ff;
-        margin-right: 0.35rem;
-        margin-bottom: 0.35rem;
-        font-size: 0.85rem;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -312,19 +302,62 @@ with col1:
 with col2:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("⚙️ Production Factors")
-    smv = st.number_input("SMV (Complexity)", min_value=smv_min, max_value=smv_max, value=float(round(df["smv"].median(), 2)), step=0.01, format="%.2f")
-    wip = st.number_input("Work in Progress (WIP)", min_value=wip_min, max_value=wip_max, value=int(df["wip"].median()), step=1)
+    smv = st.number_input(
+        "SMV (Complexity)",
+        min_value=smv_min,
+        max_value=smv_max,
+        value=float(round(df["smv"].median(), 2)),
+        step=0.01,
+        format="%.2f"
+    )
+    wip = st.number_input(
+        "Work in Progress (WIP)",
+        min_value=wip_min,
+        max_value=wip_max,
+        value=int(df["wip"].median()),
+        step=1
+    )
     no_of_style_change = st.selectbox("Number of Style Changes", style_change_options)
-    no_of_workers = st.number_input("Number of Workers", min_value=workers_min, max_value=workers_max, value=int(df["no_of_workers"].median()), step=1)
+    no_of_workers = st.number_input(
+        "Number of Workers",
+        min_value=workers_min,
+        max_value=workers_max,
+        value=int(df["no_of_workers"].median()),
+        step=1
+    )
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col3:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("💰 Time & Efficiency Metrics")
-    over_time = st.number_input("Overtime", min_value=over_time_min, max_value=over_time_max, value=int(df["over_time"].median()), step=1)
-    incentive = st.number_input("Incentive Amount", min_value=incentive_min, max_value=incentive_max, value=int(df["incentive"].median()), step=1)
-    idle_time = st.number_input("Idle Time (Mins)", min_value=idle_time_min, max_value=idle_time_max, value=int(df["idle_time"].median()), step=1)
-    idle_men = st.number_input("Idle Workers Count", min_value=idle_men_min, max_value=idle_men_max, value=int(df["idle_men"].median()), step=1)
+    over_time = st.number_input(
+        "Overtime",
+        min_value=over_time_min,
+        max_value=over_time_max,
+        value=int(df["over_time"].median()),
+        step=1
+    )
+    incentive = st.number_input(
+        "Incentive Amount",
+        min_value=incentive_min,
+        max_value=incentive_max,
+        value=int(df["incentive"].median()),
+        step=1
+    )
+    idle_time = st.number_input(
+        "Idle Time (Mins)",
+        min_value=idle_time_min,
+        max_value=idle_time_max,
+        value=int(df["idle_time"].median()),
+        step=1
+    )
+    idle_men = st.number_input(
+        "Idle Workers Count",
+        min_value=idle_men_min,
+        max_value=idle_men_max,
+        value=int(df["idle_men"].median()),
+        step=1
+    )
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================================================
@@ -434,6 +467,29 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
     else:
         st.error(status_msg)
 
+    if result == "High":
+        download_df = pd.DataFrame({
+            "Feature": [
+                "Quarter", "Department", "Day", "SMV", "WIP", "Overtime",
+                "Incentive", "Idle Time", "Idle Workers", "Style Changes",
+                "Number of Workers", "Predicted Productivity"
+            ],
+            "Value": [
+                quarter, department, day, smv, wip, over_time,
+                incentive, idle_time, idle_men, no_of_style_change,
+                no_of_workers, result
+            ]
+        })
+
+        csv_data = download_df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="⬇️ Download High Productivity Result",
+            data=csv_data,
+            file_name="high_productivity_result.csv",
+            mime="text/csv"
+        )
+
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📌 Input Summary",
         "📈 Confidence Breakdown",
@@ -458,8 +514,10 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
     with tab2:
         if prob_df is not None:
             st.caption("This chart shows the predicted probability for each productivity class.")
-            st.bar_chart(prob_df.set_index("Productivity Level"))
-            display_df = prob_df.copy()
+            ordered_prob_df = prob_df.set_index("Productivity Level").reindex(["Low", "Moderate", "High"])
+            st.bar_chart(ordered_prob_df)
+
+            display_df = ordered_prob_df.reset_index().copy()
             display_df["Probability"] = display_df["Probability"].map(lambda x: f"{x:.2%}")
             st.dataframe(display_df, use_container_width=True, hide_index=True)
         else:
@@ -482,7 +540,10 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
 
     with tab5:
         ref_df = get_reference_class_snapshot(df)
-        st.caption("Median feature values by productivity class in the dataset.")
+        st.caption(
+            "This table shows the median historical feature values for each actual productivity class in the dataset, "
+            "so users can compare their current input with typical Low, Moderate, and High patterns."
+        )
         st.dataframe(ref_df, use_container_width=True, hide_index=True)
 
 st.markdown("---")
