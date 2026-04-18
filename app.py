@@ -479,20 +479,20 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
             ]
         })
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
-
+        
     with tab2:
-    if prob_df is not None:
-        st.caption("This chart shows the predicted probability for each productivity class.")
-
-        ordered_prob_df = prob_df.set_index("Productivity Level").reindex(["Low", "Moderate", "High"])
-        st.bar_chart(ordered_prob_df)
-
-        display_df = ordered_prob_df.reset_index().copy()
-        display_df["Probability"] = display_df["Probability"].map(lambda x: f"{x:.2%}")
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("Probability output is not available for the current loaded model.")
-
+        if prob_df is not None:
+            st.caption("This chart shows the predicted probability for each productivity class.")
+            
+            ordered_prob_df = prob_df.set_index("Productivity Level").reindex(["Low", "Moderate", "High"])
+            st.bar_chart(ordered_prob_df)
+            
+            display_df = ordered_prob_df.reset_index().copy()
+            display_df["Probability"] = display_df["Probability"].map(lambda x: f"{x:.2%}")
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("Probability output is not available for the current loaded model.")
+        
     with tab3:
         recommendations = get_recommendations(result)
         for i, rec in enumerate(recommendations, start=1):
