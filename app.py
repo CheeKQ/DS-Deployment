@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-import io
 from pathlib import Path
 
 
@@ -64,15 +63,15 @@ def find_existing_file(candidates):
     return None
 
 MODEL_CANDIDATES = [
+    "garment_xgb_model.pkl",
     "garment_xgb_model_latest.pkl",
     "garment_xgb_model_latest (1).pkl",
-    "garment_xgb_model.pkl",
 ]
 
 COLUMN_CANDIDATES = [
+    "xgb_model_columns.pkl",
     "xgb_model_columns_latest.pkl",
     "xgb_model_columns_latest (1).pkl",
-    "xgb_model_columns.pkl",
 ]
 
 DATASET_CANDIDATES = [
@@ -200,7 +199,7 @@ def get_result_message(result):
     if result == "High":
         return "success", "The current input pattern suggests strong production performance."
     elif result == "Moderate":
-        return "warning", "The current input pattern suggests average but stable production performance."
+        return "warning", "The current input pattern suggests moderate and relatively stable production performance."
     else:
         return "error", "The current input pattern suggests a risk of lower productivity."
 
