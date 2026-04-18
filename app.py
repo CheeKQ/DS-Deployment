@@ -484,11 +484,15 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
             st.caption("This chart shows the predicted probability for each productivity class.")
             
             ordered_prob_df = prob_df.set_index("Productivity Level").reindex(["Low", "Moderate", "High"])
-            st.bar_chart(ordered_prob_df)
+            ordered_prob_df = ordered_prob_df.fillna(0)
+            
+            chart_df = ordered_prob_df.T
+            st.bar_chart(chart_df)
             
             display_df = ordered_prob_df.reset_index().copy()
             display_df["Probability"] = display_df["Probability"].map(lambda x: f"{x:.2%}")
             st.dataframe(display_df, use_container_width=True, hide_index=True)
+     
         else:
             st.info("Probability output is not available for the current loaded model.")
         
