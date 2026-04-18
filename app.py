@@ -2,7 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import io
 from pathlib import Path
+
 
 # =========================================================
 # PAGE CONFIG
@@ -434,6 +436,29 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
     else:
         st.error(status_msg)
 
+    if result == "High":
+        download_df = pd.DataFrame({
+            "Feature": [
+                "Quarter", "Department", "Day", "SMV", "WIP", "Overtime",
+                "Incentive", "Idle Time", "Idle Workers", "Style Changes",
+                "Number of Workers", "Predicted Productivity"
+            ],
+            "Value": [
+                quarter, department, day, smv, wip, over_time,
+                incentive, idle_time, idle_men, no_of_style_change,
+                no_of_workers, result
+            ]
+        })
+
+        csv_data = download_df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="⬇️ Download High Productivity Result",
+            data=csv_data,
+            file_name="high_productivity_result.csv",
+            mime="text/csv"
+        )
+    
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📌 Input Summary",
         "📈 Confidence Breakdown",
@@ -456,14 +481,17 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
     with tab2:
-        if prob_df is not None:
-            st.caption("This chart shows the predicted probability for each productivity class.")
-            st.bar_chart(prob_df.set_index("Productivity Level"))
-            display_df = prob_df.copy()
-            display_df["Probability"] = display_df["Probability"].map(lambda x: f"{x:.2%}")
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("Probability output is not available for the current loaded model.")
+    if prob_df is not None:
+        st.caption("This chart shows the predicted probability for each productivity class.")
+
+        ordered_prob_df = prob_df.set_index("Productivity Level").reindex(["Low", "Moderate", "High"])
+        st.bar_chart(ordered_prob_df)
+
+        display_df = ordered_prob_df.reset_index().copy()
+        display_df["Probability"] = display_df["Probability"].map(lambda x: f"{x:.2%}")
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("Probability output is not available for the current loaded model.")
 
     with tab3:
         recommendations = get_recommendations(result)
