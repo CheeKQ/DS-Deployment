@@ -249,13 +249,100 @@ def get_reference_class_snapshot(df_input):
 # =========================================================
 # HEADER
 # =========================================================
-st.markdown('<div class="main-title">🧵 AI-Powered Garment Factory Productivity Predictor</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="subtitle">A machine learning-based decision support prototype for predicting garment factory productivity using XGBoost.</div>',
-    unsafe_allow_html=True
-)
+st.markdown("""
+<style>
+    .stApp {
+        background: linear-gradient(180deg, #f8fafc 0%, #eef4f8 100%);
+    }
 
-st.success("✅ System Status: Model and dataset loaded successfully.")
+    .main-title {
+        font-size: 2.6rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin-bottom: 0.15rem;
+        letter-spacing: -0.5px;
+    }
+
+    .subtitle {
+        font-size: 1rem;
+        color: #475569;
+        margin-bottom: 1.25rem;
+    }
+
+    .hero-card {
+        background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+        padding: 1.35rem 1.5rem;
+        border-radius: 20px;
+        border: 1px solid #dbeafe;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+        margin-bottom: 1rem;
+    }
+
+    .hero-title {
+        color: white;
+        font-size: 2rem;
+        font-weight: 800;
+        margin-bottom: 0.25rem;
+    }
+
+    .hero-subtitle {
+        color: #dbeafe;
+        font-size: 0.98rem;
+        margin-bottom: 0;
+    }
+
+    .section-card {
+        background: #ffffff;
+        padding: 1rem 1rem 0.85rem 1rem;
+        border-radius: 18px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+        margin-bottom: 1rem;
+    }
+
+    .small-note {
+        color: #64748b;
+        font-size: 0.9rem;
+    }
+
+    .stButton > button {
+        background: linear-gradient(90deg, #0f766e 0%, #0ea5a4 100%);
+        color: white;
+        font-weight: 700;
+        border: none;
+        border-radius: 12px;
+        padding: 0.7rem 1rem;
+        box-shadow: 0 8px 18px rgba(13, 148, 136, 0.18);
+    }
+
+    .stButton > button:hover {
+        background: linear-gradient(90deg, #115e59 0%, #0f766e 100%);
+        color: white;
+    }
+
+    div[data-testid="stMetric"] {
+        background: white;
+        border: 1px solid #e2e8f0;
+        padding: 0.75rem 0.9rem;
+        border-radius: 16px;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+    }
+
+    div[data-testid="stDataFrame"] {
+        border-radius: 14px;
+        overflow: hidden;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 10px 10px 0 0;
+        padding: 10px 14px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # =========================================================
 # SIDEBAR
@@ -298,7 +385,7 @@ This app uses these finalized dataset fields:
 # =========================================================
 # INPUT AREA
 # =========================================================
-st.markdown("## 📥 Production Input Form")
+st.markdown("## 📥 Production Input Panel")
 
 col1, col2, col3 = st.columns(3)
 
@@ -321,7 +408,7 @@ with col2:
 
 with col3:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("💰 Time & Efficiency Metrics")
+    st.subheader("💰 Time & Efficiency Inputs")
     over_time = st.number_input("Overtime", min_value=over_time_min, max_value=over_time_max, value=int(df["over_time"].median()), step=1)
     incentive = st.number_input("Incentive Amount", min_value=incentive_min, max_value=incentive_max, value=int(df["incentive"].median()), step=1)
     idle_time = st.number_input("Idle Time (Mins)", min_value=idle_time_min, max_value=idle_time_max, value=int(df["idle_time"].median()), step=1)
@@ -497,7 +584,13 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
                 ordered_prob_df,
                 x="Productivity Level",
                 y="Probability",
-                text="Probability"
+                text="Probability",
+                color="Productivity Level",
+                color_discrete_map={
+                    "Low": "#ef4444",
+                    "Moderate": "#f59e0b",
+                    "High": "#10b981"
+                }
             )
             
             fig.update_traces(texttemplate="%{text:.2%}", textposition="outside")
@@ -506,7 +599,9 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
                 yaxis_title="Probability",
                 yaxis_tickformat=".0%",
                 xaxis=dict(categoryorder="array", categoryarray=["Low", "Moderate", "High"]),
-                showlegend=False
+                showlegend=False,
+                plot_bgcolor="white",
+                paper_bgcolor="white"
             )
             
             st.plotly_chart(fig, use_container_width=True)
