@@ -478,45 +478,44 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
             ]
         })
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
-        
-    with tab2: 
-    if prob_df is not None:
-        st.caption("This chart shows the predicted probability for each productivity class.")
-
-        ordered_prob_df = prob_df.copy()
-        ordered_prob_df["Productivity Level"] = pd.Categorical(
-            ordered_prob_df["Productivity Level"],
-            categories=["Low", "Moderate", "High"],
-            ordered=True
-        )
-        ordered_prob_df = ordered_prob_df.sort_values("Productivity Level").reset_index(drop=True)
-
-        import plotly.express as px
-
-        fig = px.bar(
-            ordered_prob_df,
-            x="Productivity Level",
-            y="Probability",
-            category_orders={"Productivity Level": ["Low", "Moderate", "High"]},
-            text="Probability"
-        )
-
-        fig.update_traces(texttemplate="%{text:.2%}", textposition="outside")
-        fig.update_layout(
-            xaxis_title="Productivity Level",
-            yaxis_title="Probability",
-            yaxis_tickformat=".0%",
-            showlegend=False
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        display_df = ordered_prob_df.copy()
-        display_df["Probability"] = display_df["Probability"].map(lambda x: f"{x:.2%}")
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-    else:
-        st.info("Probability output is not available for the current loaded model.")
+    
+    with tab2:
+        if prob_df is not None:
+            st.caption("This chart shows the predicted probability for each productivity class.")
+            
+            ordered_prob_df = prob_df.copy()
+            ordered_prob_df["Productivity Level"] = pd.Categorical(
+                ordered_prob_df["Productivity Level"],
+                categories=["Low", "Moderate", "High"],
+                ordered=True
+            )
+            ordered_prob_df = ordered_prob_df.sort_values("Productivity Level").reset_index(drop=True)
+            
+            import plotly.express as px
+            
+            fig = px.bar(
+                ordered_prob_df,
+                x="Productivity Level",
+                y="Probability",
+                text="Probability"
+            )
+            
+            fig.update_traces(texttemplate="%{text:.2%}", textposition="outside")
+            fig.update_layout(
+                xaxis_title="Productivity Level",
+                yaxis_title="Probability",
+                yaxis_tickformat=".0%",
+                xaxis=dict(categoryorder="array", categoryarray=["Low", "Moderate", "High"]),
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            display_df = ordered_prob_df.copy()
+            display_df["Probability"] = display_df["Probability"].map(lambda x: f"{x:.2%}")
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("Probability output is not available for the current loaded model.")
         
     with tab3:
         recommendations = get_recommendations(result)
