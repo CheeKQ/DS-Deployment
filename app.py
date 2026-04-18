@@ -108,11 +108,29 @@ model, model_columns, model_path, columns_path = load_model_assets()
 df, dataset_path = load_dataset()
 
 # =========================================================
-# DATA-DRIVEN OPTIONS
+# DATA PREPARATION
 # =========================================================
-quarter_options = sorted(df["quarter"].dropna().unique().tolist())
-department_options = sorted(df["department"].dropna().unique().tolist())
-day_options = sorted(df["day"].dropna().unique().tolist())
+def ordered_existing(values, preferred_order):
+    values_set = set(values)
+    ordered = [x for x in preferred_order if x in values_set]
+    remaining = [x for x in values if x not in ordered]
+    return ordered + sorted(remaining)
+
+quarter_options = ordered_existing(
+    df["quarter"].dropna().unique().tolist(),
+    ["Quarter1", "Quarter2", "Quarter3", "Quarter4", "Quarter5"]
+)
+
+department_options = ordered_existing(
+    df["department"].dropna().unique().tolist(),
+    ["sewing", "finished"]
+)
+
+day_options = ordered_existing(
+    df["day"].dropna().unique().tolist(),
+    ["Monday", "Tuesday", "Wednesday", "Thursday", "Saturday", "Sunday"]
+)
+
 style_change_options = sorted(df["no_of_style_change"].dropna().unique().tolist())
 
 # numeric ranges
@@ -151,10 +169,30 @@ def normalize_prediction(pred):
 
 def label_from_model_class(raw_class):
     class_map = {0: "Low", 1: "Moderate", 2: "High"}
+    if isinstance(raw_class, str):
+        return raw_class
     try:
         return class_map.get(int(raw_class), str(raw_class))
     except Exception:
         return str(raw_class)
+
+def normalize_dataset_label(value):
+    if pd.isna(value):
+        return value
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v == "low":
+            return "Low"
+        elif v == "moderate":
+            return "Moderate"
+        elif v == "high":
+            return "High"
+        return value
+    class_map = {0: "Low", 1: "Moderate", 2: "High"}
+    try:
+        return class_map.get(int(value), str(value))
+    except Exception:
+        return str(value)
 
 def get_result_message(result):
     if result == "High":
@@ -164,32 +202,30 @@ def get_result_message(result):
     else:
         return "error", "The current input pattern suggests a risk of lower productivity."
 
-def get_recommendations(result, wip, over_time, incentive, idle_time, idle_men, workers, style_change):
+def get_recommendations(result):
     recs = []
 
     if result == "Low":
-        recs.append("Reduce idle time and idle workers to improve operational efficiency.")
-        recs.append("Review whether the current workload is balanced with the number of workers.")
-        recs.append("Evaluate incentive strategy to improve worker motivation and performance.")
-        recs.append("Minimize unnecessary style changes to reduce disruption on the production floor.")
-        if over_time > 7000:
-            recs.append("Very high overtime may indicate pressure on the production line and should be monitored carefully.")
-
+        recs.append("Review the current production setup and identify operational factors that may be lowering efficiency.")
+        recs.append("Improve workflow planning and reduce interruptions where possible.")
+        recs.append("Monitor labour utilization, overtime, and process consistency more closely.")
     elif result == "Moderate":
         recs.append("The production line is operating within a normal range but still has room for improvement.")
-        recs.append("Better workload planning and lower idle conditions may help raise productivity to the high tier.")
-        recs.append("Monitor overtime and style changes to maintain stable production flow.")
-
+        recs.append("Better workload planning and smoother operations may help raise productivity to the high tier.")
+        recs.append("Continue monitoring process consistency to maintain stable performance.")
     else:
         recs.append("The current production setup appears efficient and well balanced.")
         recs.append("This input combination can be used as a benchmark for future planning.")
-        recs.append("Maintain low idle conditions and consistent resource allocation to sustain high productivity.")
+        recs.append("Maintain consistent resource allocation and stable workflow conditions to sustain high productivity.")
 
     return recs
 
 def get_reference_class_snapshot(df_input):
+    temp_df = df_input.copy()
+    temp_df["productivity_level"] = temp_df["productivity_level"].apply(normalize_dataset_label)
+
     summary = (
-        df_input.groupby("productivity_level")
+        temp_df.groupby("productivity_level", dropna=False)
         .agg({
             "smv": "median",
             "wip": "median",
@@ -201,8 +237,12 @@ def get_reference_class_snapshot(df_input):
         })
         .reset_index()
     )
-    map_back = {0: "Low", 1: "Moderate", 2: "High"}
-    summary["productivity_level"] = summary["productivity_level"].map(map_back)
+
+    desired_order = ["Low", "Moderate", "High"]
+    summary["sort_order"] = summary["productivity_level"].apply(
+        lambda x: desired_order.index(x) if x in desired_order else 999
+    )
+    summary = summary.sort_values("sort_order").drop(columns="sort_order")
     return summary
 
 # =========================================================
@@ -254,13 +294,6 @@ This app uses these finalized dataset fields:
 - no_of_workers
 """)
 
-    st.markdown("---")
-    st.subheader("🏷️ Valid Categories")
-    st.markdown("".join([f'<span class="pill">{x}</span>' for x in quarter_options]), unsafe_allow_html=True)
-    st.markdown("".join([f'<span class="pill">{x}</span>' for x in department_options]), unsafe_allow_html=True)
-    st.markdown("".join([f'<span class="pill">{x}</span>' for x in day_options]), unsafe_allow_html=True)
-    st.markdown("".join([f'<span class="pill">{x}</span>' for x in map(str, style_change_options)]), unsafe_allow_html=True)
-
 # =========================================================
 # INPUT AREA
 # =========================================================
@@ -297,21 +330,21 @@ with col3:
 # =========================================================
 # MONITORING NOTES
 # =========================================================
-notes = []
+flagged_fields = []
 
 if idle_time > df["idle_time"].quantile(0.90):
-    notes.append("Idle time is unusually high compared with most dataset records.")
+    flagged_fields.append("Idle Time")
 if idle_men > df["idle_men"].quantile(0.90):
-    notes.append("Idle worker count is unusually high compared with most dataset records.")
+    flagged_fields.append("Idle Workers")
 if over_time > df["over_time"].quantile(0.90):
-    notes.append("Overtime is unusually high compared with most dataset records.")
+    flagged_fields.append("Overtime")
 if wip > df["wip"].quantile(0.90):
-    notes.append("WIP is unusually high compared with most dataset records.")
+    flagged_fields.append("WIP")
 
-if notes:
+if flagged_fields:
     with st.expander("⚠️ Input Monitoring Notes"):
-        for note in notes:
-            st.write(f"- {note}")
+        st.write("One or more input values are relatively unusual compared with the dataset records.")
+        st.write("Flagged inputs: " + ", ".join(flagged_fields))
 
 # =========================================================
 # PREDICTION
@@ -356,10 +389,17 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
             probs = model.predict_proba(input_df)[0]
             class_labels = getattr(model, "classes_", [0, 1, 2])
             readable_labels = [label_from_model_class(x) for x in class_labels]
+
             prob_df = pd.DataFrame({
                 "Productivity Level": readable_labels,
                 "Probability": probs
-            }).sort_values("Probability", ascending=False).reset_index(drop=True)
+            })
+
+            class_order = ["Low", "Moderate", "High"]
+            prob_df["sort_order"] = prob_df["Productivity Level"].apply(
+                lambda x: class_order.index(x) if x in class_order else 999
+            )
+            prob_df = prob_df.sort_values("sort_order").drop(columns="sort_order").reset_index(drop=True)
         except Exception:
             probs = None
             prob_df = None
@@ -374,6 +414,12 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
         c1.metric("Predicted Productivity", result)
         c2.metric("Confidence Score", f"{confidence:.2%}")
         c3.metric("Workers", int(no_of_workers))
+
+        st.caption(
+            "Confidence score refers to the highest predicted probability produced by the model for the selected class. "
+            "It shows how strongly the model prefers that class compared with the other classes."
+        )
+
         if confidence < 0.55:
             st.warning("Prediction confidence is relatively low. Interpret this result carefully.")
     else:
@@ -411,6 +457,7 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
 
     with tab2:
         if prob_df is not None:
+            st.caption("This chart shows the predicted probability for each productivity class.")
             st.bar_chart(prob_df.set_index("Productivity Level"))
             display_df = prob_df.copy()
             display_df["Probability"] = display_df["Probability"].map(lambda x: f"{x:.2%}")
@@ -419,13 +466,15 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
             st.info("Probability output is not available for the current loaded model.")
 
     with tab3:
-        recommendations = get_recommendations(
-            result, wip, over_time, incentive, idle_time, idle_men, no_of_workers, no_of_style_change
-        )
+        recommendations = get_recommendations(result)
         for i, rec in enumerate(recommendations, start=1):
             st.write(f"**{i}.** {rec}")
 
     with tab4:
+        st.caption(
+            "This table shows the final encoded values that are actually sent into the trained model. "
+            "Categorical selections are converted into numeric model features such as dummy variables."
+        )
         encoded_preview = input_df.T.reset_index()
         encoded_preview.columns = ["Model Feature", "Value"]
         encoded_preview = encoded_preview[encoded_preview["Value"] != 0]
@@ -433,7 +482,7 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
 
     with tab5:
         ref_df = get_reference_class_snapshot(df)
-        st.caption("Median feature values by actual class in the dataset.")
+        st.caption("Median feature values by productivity class in the dataset.")
         st.dataframe(ref_df, use_container_width=True, hide_index=True)
 
 st.markdown("---")
