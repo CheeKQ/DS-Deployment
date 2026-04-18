@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+from pathlib import Path
 
 # =========================================================
 # PAGE CONFIG
@@ -18,7 +19,7 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main-title {
-        font-size: 2.5rem;
+        font-size: 2.4rem;
         font-weight: 800;
         margin-bottom: 0.2rem;
     }
@@ -38,24 +39,73 @@ st.markdown("""
         color: #6b7280;
         font-size: 0.9rem;
     }
+    .pill {
+        display: inline-block;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        background: #eef2ff;
+        border: 1px solid #dbe4ff;
+        margin-right: 0.35rem;
+        margin-bottom: 0.35rem;
+        font-size: 0.85rem;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# =========================================================
+# FILE HELPERS
+# =========================================================
+def find_existing_file(candidates):
+    for name in candidates:
+        if Path(name).exists():
+            return name
+    return None
+
+MODEL_CANDIDATES = [
+    "garment_xgb_model_latest.pkl",
+    "garment_xgb_model_latest (1).pkl",
+    "garment_xgb_model.pkl",
+]
+
+COLUMN_CANDIDATES = [
+    "xgb_model_columns_latest.pkl",
+    "xgb_model_columns_latest (1).pkl",
+    "xgb_model_columns.pkl",
+]
+
+DATASET_CANDIDATES = [
+    "final_classification_dataset.csv",
+]
 
 # =========================================================
 # LOAD ASSETS
 # =========================================================
 @st.cache_resource
 def load_model_assets():
-    model = joblib.load("garment_xgb_model.pkl")
-    model_columns = joblib.load("xgb_model_columns.pkl")
-    return model, model_columns
+    model_path = find_existing_file(MODEL_CANDIDATES)
+    columns_path = find_existing_file(COLUMN_CANDIDATES)
+
+    if model_path is None or columns_path is None:
+        missing = []
+        if model_path is None:
+            missing.append("model .pkl file")
+        if columns_path is None:
+            missing.append("model columns .pkl file")
+        raise FileNotFoundError(f"Missing required file(s): {', '.join(missing)}")
+
+    model = joblib.load(model_path)
+    model_columns = joblib.load(columns_path)
+    return model, model_columns, model_path, columns_path
 
 @st.cache_data
 def load_dataset():
-    return pd.read_csv("final_classification_dataset.csv")
+    dataset_path = find_existing_file(DATASET_CANDIDATES)
+    if dataset_path is None:
+        raise FileNotFoundError("Missing dataset file: final_classification_dataset.csv")
+    return pd.read_csv(dataset_path), dataset_path
 
-model, model_columns = load_model_assets()
-df = load_dataset()
+model, model_columns, model_path, columns_path = load_model_assets()
+df, dataset_path = load_dataset()
 
 # =========================================================
 # DATA-DRIVEN OPTIONS
@@ -87,17 +137,24 @@ def set_dummy_value(input_df, prefix, value):
     for col in candidates:
         if col in input_df.columns:
             input_df[col] = 1
-            return
+            return True
+    return False
 
 def normalize_prediction(pred):
+    class_map = {0: "Low", 1: "Moderate", 2: "High"}
     if isinstance(pred, str):
         return pred
-    class_map = {
-        0: "Low",
-        1: "Moderate",
-        2: "High"
-    }
-    return class_map.get(int(pred), str(pred))
+    try:
+        return class_map.get(int(pred), str(pred))
+    except Exception:
+        return str(pred)
+
+def label_from_model_class(raw_class):
+    class_map = {0: "Low", 1: "Moderate", 2: "High"}
+    try:
+        return class_map.get(int(raw_class), str(raw_class))
+    except Exception:
+        return str(raw_class)
 
 def get_result_message(result):
     if result == "High":
@@ -130,6 +187,24 @@ def get_recommendations(result, wip, over_time, incentive, idle_time, idle_men, 
 
     return recs
 
+def get_reference_class_snapshot(df_input):
+    summary = (
+        df_input.groupby("productivity_level")
+        .agg({
+            "smv": "median",
+            "wip": "median",
+            "over_time": "median",
+            "incentive": "median",
+            "idle_time": "median",
+            "idle_men": "median",
+            "no_of_workers": "median",
+        })
+        .reset_index()
+    )
+    map_back = {0: "Low", 1: "Moderate", 2: "High"}
+    summary["productivity_level"] = summary["productivity_level"].map(map_back)
+    return summary
+
 # =========================================================
 # HEADER
 # =========================================================
@@ -139,7 +214,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.success("✅ System Status: Model loaded successfully and ready for prediction.")
+st.success("✅ System Status: Model and dataset loaded successfully.")
 
 # =========================================================
 # SIDEBAR
@@ -157,19 +232,15 @@ The prediction is based on operational variables from the finalized classificati
 """)
 
     st.markdown("---")
-    st.subheader("🤖 Why XGBoost?")
-    st.write("""
-XGBoost was chosen because it:
-- handles non-linear relationships well,
-- improves accuracy through boosting,
-- reduces overfitting with regularization,
-- performs strongly on structured tabular data.
-""")
+    st.subheader("📂 Active Files")
+    st.caption(f"Model: {model_path}")
+    st.caption(f"Columns: {columns_path}")
+    st.caption(f"Dataset: {dataset_path}")
 
     st.markdown("---")
     st.subheader("📂 Dataset-Aligned Inputs")
     st.write("""
-This app is built based on these finalized dataset fields:
+This app uses these finalized dataset fields:
 - quarter
 - department
 - day
@@ -182,6 +253,13 @@ This app is built based on these finalized dataset fields:
 - no_of_style_change
 - no_of_workers
 """)
+
+    st.markdown("---")
+    st.subheader("🏷️ Valid Categories")
+    st.markdown("".join([f'<span class="pill">{x}</span>' for x in quarter_options]), unsafe_allow_html=True)
+    st.markdown("".join([f'<span class="pill">{x}</span>' for x in department_options]), unsafe_allow_html=True)
+    st.markdown("".join([f'<span class="pill">{x}</span>' for x in day_options]), unsafe_allow_html=True)
+    st.markdown("".join([f'<span class="pill">{x}</span>' for x in map(str, style_change_options)]), unsafe_allow_html=True)
 
 # =========================================================
 # INPUT AREA
@@ -221,14 +299,14 @@ with col3:
 # =========================================================
 notes = []
 
-if idle_time > 100:
-    notes.append("Idle time is relatively high and may negatively affect productivity.")
-if idle_men > 10:
-    notes.append("A high number of idle workers may indicate weak labor utilization.")
-if over_time > 8000:
-    notes.append("Very high overtime may reflect operational pressure.")
-if wip > 2000:
-    notes.append("A high WIP value may create bottlenecks if not managed properly.")
+if idle_time > df["idle_time"].quantile(0.90):
+    notes.append("Idle time is unusually high compared with most dataset records.")
+if idle_men > df["idle_men"].quantile(0.90):
+    notes.append("Idle worker count is unusually high compared with most dataset records.")
+if over_time > df["over_time"].quantile(0.90):
+    notes.append("Overtime is unusually high compared with most dataset records.")
+if wip > df["wip"].quantile(0.90):
+    notes.append("WIP is unusually high compared with most dataset records.")
 
 if notes:
     with st.expander("⚠️ Input Monitoring Notes"):
@@ -243,7 +321,6 @@ st.divider()
 if st.button("Generate Productivity Forecast", use_container_width=True):
     input_df = pd.DataFrame(0, index=[0], columns=model_columns)
 
-    # numeric fields
     numeric_fields = {
         "smv": smv,
         "wip": wip,
@@ -251,35 +328,41 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
         "incentive": incentive,
         "idle_time": idle_time,
         "idle_men": idle_men,
-        "no_of_style_change": no_of_style_change,
-        "no_of_workers": no_of_workers
+        "no_of_workers": no_of_workers,
     }
 
     for col, val in numeric_fields.items():
         if col in input_df.columns:
             input_df[col] = val
 
-    # dummy fields
+    if "no_of_style_change" in input_df.columns:
+        input_df["no_of_style_change"] = no_of_style_change
+    else:
+        set_dummy_value(input_df, "no_of_style_change", no_of_style_change)
+
     set_dummy_value(input_df, "quarter", quarter)
     set_dummy_value(input_df, "department", department)
     set_dummy_value(input_df, "day", day)
 
-    # some models one-hot encode style changes
-    set_dummy_value(input_df, "no_of_style_change", no_of_style_change)
-
-    # align
     input_df = input_df[model_columns]
 
-    # predict
     raw_pred = model.predict(input_df)[0]
     result = normalize_prediction(raw_pred)
 
     probs = None
+    prob_df = None
     if hasattr(model, "predict_proba"):
         try:
             probs = model.predict_proba(input_df)[0]
+            class_labels = getattr(model, "classes_", [0, 1, 2])
+            readable_labels = [label_from_model_class(x) for x in class_labels]
+            prob_df = pd.DataFrame({
+                "Productivity Level": readable_labels,
+                "Probability": probs
+            }).sort_values("Probability", ascending=False).reset_index(drop=True)
         except Exception:
             probs = None
+            prob_df = None
 
     status_type, status_msg = get_result_message(result)
 
@@ -291,6 +374,8 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
         c1.metric("Predicted Productivity", result)
         c2.metric("Confidence Score", f"{confidence:.2%}")
         c3.metric("Workers", int(no_of_workers))
+        if confidence < 0.55:
+            st.warning("Prediction confidence is relatively low. Interpret this result carefully.")
     else:
         c1, c2 = st.columns(2)
         c1.metric("Predicted Productivity", result)
@@ -303,50 +388,29 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
     else:
         st.error(status_msg)
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📌 Input Summary",
         "📈 Confidence Breakdown",
         "💡 Recommendations",
-        "🤖 XGBoost Explanation"
+        "🧾 Encoded Model Input",
+        "📚 Dataset Reference"
     ])
 
     with tab1:
         summary_df = pd.DataFrame({
             "Feature": [
-                "Quarter",
-                "Department",
-                "Day",
-                "SMV",
-                "WIP",
-                "Overtime",
-                "Incentive",
-                "Idle Time",
-                "Idle Workers",
-                "Style Changes",
-                "Number of Workers"
+                "Quarter", "Department", "Day", "SMV", "WIP", "Overtime",
+                "Incentive", "Idle Time", "Idle Workers", "Style Changes", "Number of Workers"
             ],
             "Value": [
-                quarter,
-                department,
-                day,
-                smv,
-                wip,
-                over_time,
-                incentive,
-                idle_time,
-                idle_men,
-                no_of_style_change,
-                no_of_workers
+                quarter, department, day, smv, wip, over_time,
+                incentive, idle_time, idle_men, no_of_style_change, no_of_workers
             ]
         })
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
     with tab2:
-        if probs is not None:
-            prob_df = pd.DataFrame({
-                "Productivity Level": ["Low", "Moderate", "High"],
-                "Probability": probs
-            })
+        if prob_df is not None:
             st.bar_chart(prob_df.set_index("Productivity Level"))
             display_df = prob_df.copy()
             display_df["Probability"] = display_df["Probability"].map(lambda x: f"{x:.2%}")
@@ -362,44 +426,18 @@ if st.button("Generate Productivity Forecast", use_container_width=True):
             st.write(f"**{i}.** {rec}")
 
     with tab4:
-        st.write("""
-**XGBoost** stands for **Extreme Gradient Boosting**.
+        encoded_preview = input_df.T.reset_index()
+        encoded_preview.columns = ["Model Feature", "Value"]
+        encoded_preview = encoded_preview[encoded_preview["Value"] != 0]
+        st.dataframe(encoded_preview, use_container_width=True, hide_index=True)
 
-It is an ensemble learning algorithm that combines many decision trees to improve prediction accuracy.
+    with tab5:
+        ref_df = get_reference_class_snapshot(df)
+        st.caption("Median feature values by actual class in the dataset.")
+        st.dataframe(ref_df, use_container_width=True, hide_index=True)
 
-### Why XGBoost is suitable for this prototype
-- It can model complex relationships between production factors.
-- It performs better than a single tree by learning from previous errors.
-- It includes regularization to reduce overfitting.
-- It is highly effective for structured operational datasets.
-
-### In this prototype
-The model analyzes:
-- quarter
-- department
-- day
-- smv
-- wip
-- over_time
-- incentive
-- idle_time
-- idle_men
-- no_of_style_change
-- no_of_workers
-
-Then, it predicts the productivity class as:
-- **Low**
-- **Moderate**
-- **High**
-""")
-
-# =========================================================
-# FOOTER
-# =========================================================
 st.markdown("---")
 st.markdown(
     '<div class="small-note">Prototype purpose: To support production planning, labor monitoring, and productivity forecasting in garment factory operations.</div>',
     unsafe_allow_html=True
 )
-
-
